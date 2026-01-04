@@ -71,20 +71,31 @@ jobs:
       # 4. 프리티어 자원 부족 방지: 기존 서비스 중지
       - name: Stop existing ECS service
         run: |
-          aws ecs update-service --cluster ${{ env.ECS_CLUSTER }} \
-                                 --service ${{ env.ECS_SERVICE }} \
-                                 --desired-count 0 \
-                                 --region ${{ env.AWS_REGION }}
+          echo "Stopping ECS service in cluster: ${{ env.ECS_CLUSTER }}"
+          echo "Service: ${{ env.ECS_SERVICE }}"
+          echo "Region: ${{ env.AWS_REGION }}"
+          
+          aws ecs update-service \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --service ${{ env.ECS_SERVICE }} \
+            --desired-count 0
+          
+          echo "Waiting for service to stabilize..."
+          aws ecs wait services-stable \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --services ${{ env.ECS_SERVICE }}
 
       # 5. Task Definition 다운로드 및 jq를 이용한 정밀 세척
       - name: Download and Clean task definition
         run: |
-          aws ecs describe-task-definition --task-definition ${{ env.ECS_TASK_DEFINITION_NAME }} \
-                                           --region ${{ env.AWS_REGION }} \
-                                           --query taskDefinition > task-definition.json
+          aws ecs describe-task-definition \
+            --task-definition ${{ env.ECS_TASK_DEFINITION_NAME }} \
+            --query taskDefinition > task-definition.json
           
           # 불필요한 필드를 제거하여 등록 가능한 형태로 변환
           jq 'del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy, .enableFaultInjection)' task-definition.json > clean-task-definition.json
+          
+          cat clean-task-definition.json
 
       # 6. 새 이미지 주소를 태스크 정의에 반영
       - name: Fill in the new image ID in task definition
@@ -102,3 +113,4 @@ jobs:
           task-definition: ${{ steps.task-def.outputs.task-definition }}
           service: ${{ env.ECS_SERVICE }}
           cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true
